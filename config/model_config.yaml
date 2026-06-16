@@ -1,0 +1,41 @@
+snpi_net:
+  adaptive_kernel:
+    input_dim: 6
+    hidden_dims: [64, 128, 64]
+    delta_min: 0.5
+  
+  uncertainty:
+    dropout_rate: 0.1
+    n_mc_samples: 100
+  
+  multi_fidelity:
+    n_low: 2000
+    n_medium: 300
+    n_high: 100
+
+cad_former:
+  d_model: 256
+  n_heads: 8
+  n_layers: 6
+  dropout: 0.1
+  
+  micro_gnn:
+    node_feat_dim: 8
+    edge_feat_dim: 4
+    hidden_dims: [64, 128]
+  
+  meso_cnn:
+    in_channels: 3
+    hidden_channels: [32, 64]
+  
+al_vtfd:
+  acquisition:
+    w_info: 0.4
+    w_explore: 0.2
+    w_exploit: 0.3
+    w_cost: 0.1
+  
+  convergence:
+    target_r2: 0.95
+    max_uncertainty: 0.1
+    param_change_threshold: 0.01

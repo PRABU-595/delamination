@@ -1,0 +1,23 @@
+training:
+  batch_size: 32
+  learning_rate: 1e-3
+  weight_decay: 1e-4
+  epochs: 100
+  
+  optimizer: adam
+  scheduler: cosine_annealing
+  
+  loss_weights:
+    prediction: 1.0
+    physics: 0.1
+    uncertainty: 0.05
+
+validation:
+  val_split: 0.15
+  test_split: 0.15
+  k_folds: 5
+
+checkpointing:
+  save_every: 10
+  keep_top_k: 3
+  monitor: val_loss

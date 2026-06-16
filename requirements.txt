@@ -1,0 +1,39 @@
+# Core ML frameworks
+torch
+torchvision
+torch-geometric
+
+# Scientific computing
+numpy
+scipy
+pandas
+h5py
+
+# Physics libraries
+# fenics  # Requires WSL/Docker on Windows
+meshio
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# ML utilities
+scikit-learn
+optuna
+wandb
+
+# Uncertainty quantification
+gpytorch
+pyro-ppl
+
+# Active learning
+botorch
+
+# Graph networks
+networkx
+# torch-scatter  # Often fails build on Windows without pre-built wheels
+
+# Utilities
+pyyaml
+tqdm

@@ -1,0 +1,6 @@
+raw_data: data/raw
+processed_data: data/processed
+results_dir: results
+experiments_dir: experiments
+log_dir: experiments/logs
+model_save_dir: experiments/checkpoints

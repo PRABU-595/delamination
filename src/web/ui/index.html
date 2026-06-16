@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delamination Detector | AI-Powered Analysis</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #1e40af;
+            --bg: #f3f4f6;
+            --card: #ffffff;
+            --text: #1f2937;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: var(--card);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            padding: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 40px;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover,
+        .upload-area.dragover {
+            border-color: var(--primary);
+            background-color: #eff6ff;
+        }
+
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background-color: var(--secondary);
+        }
+
+        .btn:disabled {
+            background-color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        #results {
+            margin-top: 30px;
+            display: none;
+            text-align: left;
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .status-healthy {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-critical {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        #preview {
+            max-width: 100%;
+            max-height: 200px;
+            margin-top: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Delamination Detector</h1>
+        <p>AI-Powered Composite Analysis</p>
+
+        <div class="upload-area" id="drop-zone">
+            <p>Drop your scan here or click to upload</p>
+            <input type="file" id="file-input" accept="image/*" style="display: none">
+            <img id="preview" alt="Preview">
+        </div>
+
+        <!-- Physical Parameters Form -->
+        <div style="text-align: left; margin-bottom: 20px;">
+            <h3 style="margin-top: 0; color: #475569;">Physical Parameters</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                    <label style="font-size: 12px; font-weight: bold;">E11 (GPa)</label>
+                    <input type="number" id="p-e11" value="140.0" step="0.1"
+                        style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; font-weight: bold;">E22 (GPa)</label>
+                    <input type="number" id="p-e22" value="10.0" step="0.1"
+                        style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; font-weight: bold;">G12 (GPa)</label>
+                    <input type="number" id="p-g12" value="5.0" step="0.1"
+                        style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; font-weight: bold;">nu12</label>
+                    <input type="number" id="p-nu12" value="0.3" step="0.01"
+                        style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; font-weight: bold;">G1c (N/mm)</label>
+                    <input type="number" id="p-g1c" value="0.3" step="0.01"
+                        style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="font-size: 12px; font-weight: bold;">G2c (N/mm)</label>
+                    <input type="number" id="p-g2c" value="1.0" step="0.01"
+                        style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+            </div>
+            <div style="margin-top: 10px;">
+                <label style="font-size: 12px; font-weight: bold;">Max Load (N)</label>
+                <input type="number" id="p-load" value="1000.0" step="10"
+                    style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px;">
+            </div>
+        </div>
+
+        <button id="analyze-btn" class="btn" disabled>Analyze Sample</button>
+
+        <div id="results">
+            <h3>Analysis Report</h3>
+            <div class="metric">
+                <span>Status</span>
+                <span id="res-status" class="status-badge">--</span>
+            </div>
+            <div class="metric">
+                <span>Severity Score</span>
+                <span id="res-severity" style="font-weight: bold">--</span>
+            </div>
+            <div class="metric">
+                <span>Est. Growth Rate</span>
+                <span id="res-growth">--</span>
+            </div>
+            <div class="metric">
+                <span>Model Uncertainty</span>
+                <span id="res-unc">--</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const preview = document.getElementById('preview');
+        const results = document.getElementById('results');
+
+        let selectedFile = null;
+
+        // Handle File Selection
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                analyzeBtn.disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Handle Analysis
+        analyzeBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            analyzeBtn.innerText = "Analyzing...";
+            analyzeBtn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            // Append Physical Parameters
+            formData.append('E11', document.getElementById('p-e11').value);
+            formData.append('E22', document.getElementById('p-e22').value);
+            formData.append('G12', document.getElementById('p-g12').value);
+            formData.append('nu12', document.getElementById('p-nu12').value);
+            formData.append('G1c', document.getElementById('p-g1c').value);
+            formData.append('G2c', document.getElementById('p-g2c').value);
+            formData.append('max_load', document.getElementById('p-load').value);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error("Analysis failed");
+
+                const data = await response.json();
+                displayResults(data);
+
+            } catch (err) {
+                alert("Error: " + err.message);
+            } finally {
+                analyzeBtn.innerText = "Analyze Sample";
+                analyzeBtn.disabled = false;
+            }
+        });
+
+        function displayResults(data) {
+            results.style.display = 'block';
+
+            document.getElementById('res-severity').innerText = data.delamination_severity.toFixed(4);
+            document.getElementById('res-growth').innerText = data.growth_rate_mm_per_cycle.toFixed(4) + " mm/cyc";
+            document.getElementById('res-unc').innerText = (data.uncertainty * 100).toFixed(2) + "%";
+
+            const statusEl = document.getElementById('res-status');
+            statusEl.innerText = data.status;
+            statusEl.className = `status-badge ${data.status === 'HEALTHY' ? 'status-healthy' : 'status-critical'}`;
+        }
+    </script>
+
+</body>
+
+</html>

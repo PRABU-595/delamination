@@ -1,0 +1,6 @@
+nasa_dataset:
+  root_dir: "data/raw/NASA_CFRP"
+  download_url: "https://phm-datasets.s3.amazonaws.com/NASA/2.+Composites.zip"
+  batch_size: 32
+  train_split: 0.8
+  

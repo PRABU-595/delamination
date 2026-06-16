@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Large binary / data directories (too big for GitHub)
+data/
+results/
+logs/
+tmp/
+experiments/
+simulations/
+notebooks/
+
+# Model checkpoints (large .pt / .pth files)
+src/training/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.pkl
+
+# Large documents & PDFs at root
+*.pdf
+*.docx
+*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Pytest cache
+.pytest_cache/
+
+# Logs
+*.log
