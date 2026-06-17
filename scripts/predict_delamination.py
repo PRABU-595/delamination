@@ -295,7 +295,7 @@ def classify_material(props):
       2. s  = G12/E11  — In-plane shear coupling index
            Woven:  s ~ 0.15-0.30  (fibres in 0 AND 90 → high shear resistance)
            UD:     s ~ 0.02-0.07  (fibres only in 0 → weak transverse shear)
-           Angle-ply [±45]: s can be very high due to shear dominance
+           Angle-ply [+/-45]: s can be very high due to shear dominance
 
       3. nu12             — Poisson coupling
            UD:     nu12 ~ 0.25-0.35  (high fibre-direction dominance)
@@ -306,8 +306,8 @@ def classify_material(props):
         Unidirectional (UD)      – single fibre direction, max anisotropy
         Cross-Ply [0/90]         – alternating 0/90, moderate anisotropy
         Woven Fabric             – balanced 0/90 weave, near-isotropic in-plane
-        Quasi-Isotropic [0/±45/90] – designed for in-plane isotropy
-        Angle-Ply [±θ]           – off-axis ply dominance, high shear stiffness
+        Quasi-Isotropic [0/+/-45/90] – designed for in-plane isotropy
+        Angle-Ply [+/-θ]           – off-axis ply dominance, high shear stiffness
         Random/CSM               – chopped strand mat, fully isotropic
     """
     E11  = props['E11']
@@ -324,8 +324,8 @@ def classify_material(props):
     if r < 1.15 and E11 < 15.0 and s < 0.20:
         return 'Random / CSM'
 
-    # Quasi-Isotropic [0/±45/90]s: near-equal E11/E22, moderate G12,
-    # but lower G12/E11 than woven because ±45 plies distribute shear differently
+    # Quasi-Isotropic [0/+/-45/90]s: near-equal E11/E22, moderate G12,
+    # but lower G12/E11 than woven because +/-45 plies distribute shear differently
     if r < 1.15 and s < 0.17 and nu12 > 0.25:
         return 'Quasi-Isotropic'
 
@@ -412,168 +412,175 @@ def print_report(metrics, props):
     print("=" * 56)
 
 
-def generate_plots(res, metrics, props, out_dir):
+
+def _style():
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.size': 12,
+        'figure.dpi': 150,
+        'axes.spines.top': False,
+        'axes.spines.right': False,
+        'axes.titleweight': 'bold',
+        'axes.titlepad': 12
+    })
+
+def _subtitle(props, metrics):
+    return f"Material: {metrics['Material Type']}  |  E11={props['E11']} GPa  |  G1c={props['G1c']} kJ/m2  |  G2c={props['G2c']} kJ/m2"
+
+def plot_01_damage(res, metrics, props, out_dir):
+    _style()
     loads, dmg = res['loads'], res['damages']
-    mig = res['migration']
-
-    plt.rcParams.update({'font.family': 'serif', 'font.size': 11, 'figure.dpi': 150})
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle(
-        f"Delamination Prediction - {metrics['Material Type']} Composite\n"
-        f"E11={props['E11']}GPa  G1c={props['G1c']}kJ/m2  G2c={props['G2c']}kJ/m2",
-        fontsize=14, fontweight='bold')
-
-    # 1 - Damage vs Load
-    ax = axes[0, 0]
     uncert = res['uncertainty']
     dmg_lo = np.clip(dmg - uncert, 0, 1) * 100
     dmg_hi = np.clip(dmg + uncert, 0, 1) * 100
-    ax.fill_between(loads, dmg_lo, dmg_hi, alpha=0.2, color='#4a90d9', label='Uncertainty')
-    ax.plot(loads, dmg * 100, '#1a5276', lw=2.5, marker='o', ms=4, label='Predicted Damage')
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.fill_between(loads, dmg_lo, dmg_hi, alpha=0.25, color='#4a90d9', label='Uncertainty Band')
+    ax.plot(loads, dmg * 100, '#1a5276', lw=2.5, marker='o', ms=5, label='Predicted Damage')
+    
     onset = metrics['Damage Onset Load (N)']
     if onset != float('inf'):
-        ax.axvline(onset, color='#e67e22', ls='--', lw=1.5, label=f'Onset ({onset:.0f} N)')
+        ax.axvline(onset, color='#e67e22', ls='--', lw=2, label=f'Onset ({onset:.1f} N) -> 5% Damage')
     c = metrics['Critical Damage Load (N)']
     if c:
-        ax.axvline(c, color='#e74c3c', ls='--', lw=1.5, label=f'Critical ({c:.0f} N)')
+        ax.axvline(c, color='#e74c3c', ls='--', lw=2, label=f'Critical ({c:.1f} N) -> 50% Damage')
+    
+    lefm = metrics['Critical Load (N)']
+    ax.axvline(lefm, color='#8e44ad', ls=':', lw=1.5, label=f'LEFM P_c ({lefm:.1f} N)')
+
     ax.set_xlabel('Applied Load (N)')
     ax.set_ylabel('Damage Index (%)')
-    ax.set_title('Delamination Damage vs Applied Load')
-    ax.legend(fontsize=9, loc='upper left')
-    ax.grid(True, alpha=0.3)
+    ax.set_title('Delamination Damage vs Applied Load', fontsize=14, fontweight='bold')
     ax.set_ylim(-2, 105)
     ax.set_xlim(0, loads[-1] * 1.02)
-
-    # 2 - Growth Rate
-    ax = axes[0, 1]
-    growth = res['growth']
-    ax.fill_between(loads, 0, growth, alpha=0.2, color='#e74c3c')
-    ax.plot(loads, growth, '#c0392b', lw=2.5, marker='s', ms=4)
-    peak_idx = np.argmax(growth)
-    ax.annotate(f'Peak: {growth[peak_idx]:.4f}',
-                xy=(loads[peak_idx], growth[peak_idx]),
-                xytext=(loads[peak_idx] + loads[-1]*0.1, growth[peak_idx] * 0.85),
-                arrowprops=dict(arrowstyle='->', color='#c0392b'),
-                fontsize=9, color='#c0392b')
-    ax.set_xlabel('Applied Load (N)')
-    ax.set_ylabel('dD/dP (Damage Growth Rate)')
-    ax.set_title('Delamination Growth Rate (dD/dP)')
+    ax.legend(fontsize=10, loc='upper left')
     ax.grid(True, alpha=0.3)
-    ax.set_xlim(0, loads[-1] * 1.02)
-    ax.set_ylim(bottom=0)
 
-    # 3 - Migration
-    ax = axes[1, 0]
-    labels = [f'Interface {i}' for i in range(len(mig))]
-    colors = ['#2ecc71' if i == np.argmax(mig) else '#95a5a6' for i in range(len(mig))]
-    bars = ax.barh(labels, mig * 100, color=colors, height=0.6)
-    for b, p in zip(bars, mig):
-        ax.text(b.get_width() + 1, b.get_y() + b.get_height() / 2,
-                f'{p * 100:.1f}%', va='center', fontsize=10)
-    ax.set_xlabel('Migration Probability (%)')
-    ax.set_title('Interlaminar Migration Prediction')
-    ax.set_xlim(0, 110)
-
-    # 4 - Full Details Table  (Left: User Inputs | Right: Model Outputs)
-    ax = axes[1, 1]
-    ax.axis('off')
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-
-    # --- Derive all values dynamically ---
-    stiffness_ratio = props['E11'] / max(props['E22'], 1e-6)
-    toughness_norm  = np.sqrt(props['G1c'] * props['G2c']) / np.sqrt(0.6 * 1.58)
-    D_max_val       = float(np.clip(0.95 / toughness_norm, 0.50, 0.97))
-    sev_val = metrics['Final Damage (%)']
-    if sev_val < 10:    severity = 'MINIMAL'
-    elif sev_val < 30:  severity = 'MODERATE'
-    elif sev_val < 60:  severity = 'SIGNIFICANT'
-    else:               severity = 'CRITICAL'
-    crit_dmg = metrics['Critical Damage Load (N)']
-    crit_str  = f"{crit_dmg:.2f} N" if crit_dmg else 'N/A'
-    ply_map   = {0: '0/90', 1: '90/+45', 2: '+45/-45', 3: '-45/0'}
-    iface_idx = metrics['Predicted Migration Interface']
-    iface_str = f"IF{iface_idx} ({ply_map.get(iface_idx, '?')})"
-
-    input_rows = [
-        ('USER INPUTS',        '',                          True),
-        ('E11  Longitudinal',  f"{props['E11']:.2f} GPa",  False),
-        ('E22  Transverse',    f"{props['E22']:.2f} GPa",  False),
-        ('G12  Shear Modulus', f"{props['G12']:.2f} GPa",  False),
-        ('nu12 Poisson Ratio', f"{props['nu12']:.4f}",     False),
-        ('G1c  Mode I  DCB',   f"{props['G1c']:.3f} kJ/m2",False),
-        ('G2c  Mode II ENF',   f"{props['G2c']:.3f} kJ/m2",False),
-        ('DERIVED',            '',                          True),
-        ('Material Type',      metrics['Material Type'],    False),
-        ('E11/E22 Ratio',      f"{stiffness_ratio:.3f}",   False),
-        ('G2c/G1c Mode Mix',   f"{metrics['Mixed-Mode Ratio (G2c/G1c)']:.3f}", False),
-    ]
-
-    output_rows = [
-        ('MODEL OUTPUTS',        '',                         True),
-        ('Critical Load (LEFM)', f"{metrics['Critical Load (N)']:.2f} N", False),
-        ('Damage Onset (5%)',     f"{metrics['Damage Onset Load (N)']:.2f} N", False),
-        ('Critical Dmg (50%)',    crit_str,                  False),
-        ('Final Damage Index',    f"{metrics['Final Damage (%)']:.1f} %", False),
-        ('D_max  (Sat. Cap)',      f"{D_max_val*100:.1f} %", False),
-        ('Peak Growth dD/dP',     f"{metrics['Peak Growth Rate']:.5f} /N", False),
-        ('Mean Uncertainty',      f"+-{metrics['Mean Uncertainty']*100:.2f} %", False),
-        ('MIGRATION',             '',                         True),
-        ('Predicted Interface',   iface_str,                 False),
-        ('Confidence',            f"{metrics['Migration Confidence (%)']:.1f} %", False),
-        ('Severity',              severity,                   False),
-    ]
-
-    def draw_panel(ax_obj, rows, x0, panel_w):
-        n = len(rows)
-        row_h = 0.88 / n
-        y_start = 0.94
-        for i, (label, val, is_hdr) in enumerate(rows):
-            y = y_start - i * row_h
-            if is_hdr:
-                bg = '#1a3a5c' if x0 < 0.5 else '#3d1a5c'
-                fc, fw = 'white', 'bold'
-                ax_obj.add_patch(plt.Rectangle(
-                    (x0, y - row_h), panel_w, row_h,
-                    transform=ax_obj.transAxes, color=bg, zorder=1, clip_on=False))
-                ax_obj.text(x0 + panel_w / 2, y - row_h / 2, f'  {label}  ',
-                            transform=ax_obj.transAxes, va='center', ha='center',
-                            fontsize=8.5, fontweight=fw, color=fc, clip_on=False)
-            else:
-                bg = '#eaf2fb' if (x0 < 0.5) else '#f5eef8'
-                bg = bg if i % 2 == 0 else '#ffffff'
-                sev_colors = {'CRITICAL': '#e74c3c', 'SIGNIFICANT': '#e67e22',
-                              'MODERATE': '#f1c40f', 'MINIMAL': '#2ecc71'}
-                text_col = sev_colors.get(val, '#1a1a2e') if label == 'Severity' else '#1a1a2e'
-                ax_obj.add_patch(plt.Rectangle(
-                    (x0, y - row_h), panel_w, row_h,
-                    transform=ax_obj.transAxes, color=bg, zorder=1, clip_on=False))
-                ax_obj.text(x0 + 0.015, y - row_h / 2, label,
-                            transform=ax_obj.transAxes, va='center', ha='left',
-                            fontsize=8, color='#2c3e50', clip_on=False)
-                ax_obj.text(x0 + panel_w - 0.015, y - row_h / 2, val,
-                            transform=ax_obj.transAxes, va='center', ha='right',
-                            fontsize=8, fontweight='bold', color=text_col, clip_on=False)
-
-    draw_panel(ax, input_rows,  0.00, 0.47)
-    draw_panel(ax, output_rows, 0.53, 0.47)
-
-    # Divider line between the two panels
-    ax.plot([0.5, 0.5], [0.06, 0.97], color='#bdc3c7', lw=1,
-            transform=ax.transAxes, clip_on=False)
-    ax.set_title('Input Parameters  |  Model Outputs', fontsize=10,
-                 fontweight='bold', pad=6)
-
-    plt.tight_layout()
-    path = out_dir / "delamination_report.png"
+    fig.text(0.5, -0.02, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
+    fig.tight_layout()
+    path = out_dir / '01_damage_vs_load.png'
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close(fig)
     return path
 
+def plot_02_growth(res, metrics, props, out_dir):
+    _style()
+    loads, growth = res['loads'], res['growth']
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.fill_between(loads, 0, growth, alpha=0.2, color='#e74c3c')
+    ax.plot(loads, growth, '#c0392b', lw=2.5, marker='s', ms=5)
+    
+    peak_idx = np.argmax(growth)
+    ax.annotate(f'Peak Rate: {growth[peak_idx]:.4f} /N',
+                xy=(loads[peak_idx], growth[peak_idx]),
+                xytext=(loads[peak_idx] + loads[-1]*0.05, growth[peak_idx] * 0.95),
+                arrowprops=dict(arrowstyle='->', color='#c0392b', lw=1.5),
+                fontsize=11, fontweight='bold', color='#c0392b')
+                
+    ax.set_xlabel('Applied Load (N)')
+    ax.set_ylabel('dD/dP (Damage Growth Rate)')
+    ax.set_title('Delamination Growth Rate Profiling', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0, loads[-1] * 1.02)
+    ax.set_ylim(bottom=0, top=growth[peak_idx]*1.15)
+
+    fig.text(0.5, -0.02, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
+    fig.tight_layout()
+    path = out_dir / '02_growth_rate.png'
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return path
+
+def plot_03_uncertainty(res, metrics, props, out_dir):
+    _style()
+    loads, dmg, uncert = res['loads'], res['damages'], res['uncertainty']
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    ax = axes[0]
+    dmg_lo = np.clip(dmg - uncert, 0, 1) * 100
+    dmg_hi = np.clip(dmg + uncert, 0, 1) * 100
+    ax.fill_between(loads, dmg_lo, dmg_hi, alpha=0.35, color='#4a90d9', label='+/-Sigma Band')
+    ax.plot(loads, dmg * 100, '#1a5276', lw=2, label='Mean Prediction')
+    ax.plot(loads, dmg_lo, '#4a90d9', lw=0.8, ls='--', alpha=0.7)
+    ax.plot(loads, dmg_hi, '#4a90d9', lw=0.8, ls='--', alpha=0.7)
+    ax.set_xlabel('Applied Load (N)')
+    ax.set_ylabel('Damage Index (%)')
+    ax.set_title('Prediction with Uncertainty Envelope', fontweight='bold')
+    ax.set_ylim(-2, 105)
+    ax.set_xlim(0, loads[-1] * 1.02)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    ax2 = axes[1]
+    band_width = (dmg_hi - dmg_lo)
+    ax2.fill_between(loads, 0, band_width, alpha=0.3, color='#27ae60')
+    ax2.plot(loads, band_width, '#1e8449', lw=2.5, marker='^', ms=5)
+    ax2.set_xlabel('Applied Load (N)')
+    ax2.set_ylabel('Uncertainty Width  (Delta Damage %)')
+    ax2.set_title('Uncertainty Band Width vs Load', fontweight='bold')
+    ax2.set_xlim(0, loads[-1] * 1.02)
+    ax2.set_ylim(bottom=0)
+    ax2.grid(True, alpha=0.3)
+
+    mean_u = metrics['Mean Uncertainty'] * 100
+    ax2.axhline(mean_u, color='#e74c3c', ls='--', lw=1.5, label=f'Mean +/-{mean_u:.2f}%')
+    ax2.legend(fontsize=10)
+
+    fig.suptitle('Prediction Uncertainty Analysis', fontsize=14, fontweight='bold', y=1.01)
+    fig.text(0.5, -0.02, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
+    fig.tight_layout()
+    path = out_dir / '03_uncertainty_band.png'
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return path
+
+def plot_04_migration(res, metrics, props, out_dir):
+    _style()
+    mig = res['migration']
+    ply_map = {0: '0/90', 1: '90/+45', 2: '+45/-45', 3: '-45/0'}
+    labels = [f'Interface {i}\n({ply_map.get(i, "")})' for i in range(len(mig))]
+    best = int(np.argmax(mig))
+    colors = ['#2ecc71' if i == best else '#bdc3c7' for i in range(len(mig))]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.barh(labels, mig * 100, color=colors, height=0.35, edgecolor='white', linewidth=1.5)
+    for b, p in zip(bars, mig):
+        ax.text(b.get_width() + 1.2, b.get_y() + b.get_height() / 2,
+                f'{p * 100:.1f}%', va='center', fontsize=11, fontweight='bold')
+
+    ax.set_xlabel('Migration Probability (%)', fontsize=13)
+    ax.set_title('Interlaminar Delamination Migration Prediction\n(Benzeggagh-Kenane Criterion, eta = 1.75)',
+                 fontsize=13, fontweight='bold', pad=10)
+    ax.set_xlim(0, 115)
+    ax.axvline(50, color='#e74c3c', ls=':', lw=1.2, label='50% threshold')
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.25, axis='x')
+
+    ax.annotate(f'  <- Most likely migration site\n    Confidence: {mig[best]*100:.1f}%',
+                xy=(mig[best] * 100, best),
+                xytext=(mig[best] * 100 + 10, best),
+                va='center', fontsize=9, color='#1e8449')
+
+    fig.text(0.5, 0.01, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
+    fig.tight_layout(rect=[0, 0.04, 1, 1])
+    path = out_dir / '04_migration_prediction.png'
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return path
+
+def generate_individual_plots(res, metrics, props, out_dir):
+    paths = [
+        plot_01_damage(res, metrics, props, out_dir),
+        plot_02_growth(res, metrics, props, out_dir),
+        plot_03_uncertainty(res, metrics, props, out_dir),
+        plot_04_migration(res, metrics, props, out_dir)
+    ]
+    return paths
 
 def export_csv(res, metrics, props, out_dir):
     import csv
-    # Raw data
     p1 = out_dir / "raw_data.csv"
     with open(p1, 'w', newline='') as f:
         w = csv.writer(f)
@@ -582,7 +589,6 @@ def export_csv(res, metrics, props, out_dir):
             w.writerow([f"{res['loads'][i]:.2f}", f"{res['damages'][i]*100:.2f}",
                          f"{res['growth'][i]:.6f}", f"{res['uncertainty'][i]:.6f}"])
 
-    # Metrics
     p2 = out_dir / "metrics.csv"
     with open(p2, 'w', newline='') as f:
         w = csv.writer(f)
@@ -594,7 +600,6 @@ def export_csv(res, metrics, props, out_dir):
         for k, v in props.items():
             w.writerow([k, v])
     return p1, p2
-
 
 def main():
     print("\n" + "=" * 56)
@@ -611,15 +616,18 @@ def main():
     out_dir = Path(__file__).parent.parent / "results" / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    plot = generate_plots(res, metrics, props, out_dir)
+    plots = generate_individual_plots(res, metrics, props, out_dir)
     csv1, csv2 = export_csv(res, metrics, props, out_dir)
 
     print(f"\n  Saved to: {out_dir}")
-    print(f"    - delamination_report.png")
-    print(f"    - raw_data.csv")
-    print(f"    - metrics.csv")
+    print(f"  " + "-" * 54)
+    print("    01_damage_vs_load.png        <- S-curve with onset & critical load")
+    print("    02_growth_rate.png           <- dD/dP bell curve")
+    print("    03_uncertainty_band.png      <- confidence envelope")
+    print("    04_migration_prediction.png  <- interface probability chart")
+    print("    raw_data.csv                 <- full load-damage table")
+    print("    metrics.csv                  <- summary metrics")
     print("=" * 56 + "\n")
-
 
 if __name__ == '__main__':
     main()
