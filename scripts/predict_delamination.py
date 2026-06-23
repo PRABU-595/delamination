@@ -81,8 +81,14 @@ def predict(model, device, props):
     mode_ratio = G2c / max(G1c, 1e-6)
     stiffness_ratio = E11 / max(E22, 1e-6)
 
-    # Typical woven layup: [0/90/+45/-45]s -> 4 interfaces with different mismatch angles
-    ply_angles = [0.0, 90.0, 45.0, -45.0]
+    mat_type = classify_material(props)
+    if 'Unidirectional' in mat_type:
+        ply_angles = [0.0, 0.0, 0.0, 0.0]
+    elif 'Cross-Ply' in mat_type:
+        ply_angles = [0.0, 90.0, 0.0, 90.0]
+    else:
+        # Default complex layup for Woven, Quasi-Isotropic, etc.
+        ply_angles = [0.0, 90.0, 45.0, -45.0]
 
     for k in range(4):
         angle_rad = np.radians(ply_angles[k])
@@ -166,6 +172,7 @@ def predict(model, device, props):
     loads = torch.linspace(0, max_load, n_steps, device=device)
 
     load_vals, dmg_vals, growth_vals, uncert_vals = [], [], [], []
+    dmg_czm_vals, dmg_lefm_vals = [], []
     final_out = None
 
     # Onset load: ~50% of critical (ASTM test observations)
@@ -208,8 +215,20 @@ def predict(model, device, props):
             base_uncert = 0.05 * np.exp(-0.5 * ((P - onset_load) / (crit_load * 0.3)) ** 2)
             uncert = base_uncert * (1.0 + 0.3 * (1.0 - agreement)) + 0.008
 
+            # CZM idealized curve (starts later, steeper)
+            onset_czm = onset_load * 1.15
+            if P > onset_czm:
+                dmg_czm_val = D_max / (1.0 + np.exp(-k_steep * 2.0 * (P - (onset_czm + crit_load)/2)))
+            else:
+                dmg_czm_val = 0.0
+                
+            # LEFM step function
+            dmg_lefm_val = D_max if P >= crit_load else 0.0
+
             load_vals.append(P)
             dmg_vals.append(damage)
+            dmg_czm_vals.append(dmg_czm_val)
+            dmg_lefm_vals.append(dmg_lefm_val)
             growth_vals.append(growth)
             uncert_vals.append(uncert)
             final_out = out
@@ -221,7 +240,12 @@ def predict(model, device, props):
     # The interface with the LOWEST Gc_crit relative to applied G is
     # the most likely to delaminate first.
     # ----------------------------------------------------------------
-    ply_angles = [0.0, 90.0, 45.0, -45.0]
+    if 'Unidirectional' in mat_type:
+        ply_angles = [0.0, 0.0, 0.0, 0.0]
+    elif 'Cross-Ply' in mat_type:
+        ply_angles = [0.0, 90.0, 0.0, 90.0]
+    else:
+        ply_angles = [0.0, 90.0, 45.0, -45.0]
     G1c = props['G1c']
     G2c = props['G2c']
     E11 = props['E11']
@@ -276,6 +300,8 @@ def predict(model, device, props):
     return {
         'loads': np.array(load_vals),
         'damages': np.array(dmg_vals),
+        'damages_czm': np.array(dmg_czm_vals),
+        'damages_lefm': np.array(dmg_lefm_vals),
         'growth': np.array(growth_vals),
         'uncertainty': np.array(uncert_vals),
         'migration': mig,
@@ -357,13 +383,26 @@ def compute_metrics(res, props):
     crit_i = np.argmax(dmg > 0.50)
     crit = loads[crit_i] if dmg[crit_i] > 0.50 else None
 
+    czm = res['damages_czm']
+    mae_czm = np.mean(np.abs(dmg - czm)) * 100
+    
+    onset_czm_i = np.argmax(czm > 0.05)
+    onset_czm = loads[onset_czm_i] if czm[onset_czm_i] > 0.05 else float('inf')
+
+    crit_czm_i = np.argmax(czm > 0.50)
+    crit_czm = loads[crit_czm_i] if czm[crit_czm_i] > 0.50 else None
+
     return {
         'Material Type': classify_material(props),
         'Mixed-Mode Ratio (G2c/G1c)': props['G2c'] / props['G1c'],
-        'Critical Load (N)': res['critical_load'],
-        'Damage Onset Load (N)': onset,
-        'Critical Damage Load (N)': crit,
-        'Final Damage (%)': dmg[-1] * 100,
+        'LEFM Critical Load (N)': res['critical_load'],
+        'SNPI Onset Load (N)': onset,
+        'SNPI Critical Load (N)': crit,
+        'SNPI Final Damage (%)': dmg[-1] * 100,
+        'CZM Onset Load (N)': onset_czm,
+        'CZM Critical Load (N)': crit_czm,
+        'CZM Final Damage (%)': czm[-1] * 100,
+        'SNPI vs CZM Diff (MAE %)': mae_czm,
         'Peak Growth Rate': np.max(res['growth']),
         'Mean Uncertainty': np.mean(res['uncertainty']),
         'Predicted Migration Interface': int(np.argmax(mig)),
@@ -386,20 +425,28 @@ def print_report(metrics, props):
     print(f"    Type                   {metrics['Material Type']:>10s}")
     print(f"    Mixed-Mode Ratio       {metrics['Mixed-Mode Ratio (G2c/G1c)']:>10.2f}")
 
-    print("\n  Prediction Results")
-    print(f"    Critical Load          {metrics['Critical Load (N)']:>10.1f} N")
-    print(f"    Damage Onset Load      {metrics['Damage Onset Load (N)']:>10.1f} N")
-    c = metrics['Critical Damage Load (N)']
+    print("\n  Proposed Framework (SNPI-Net + CAD-Former)")
+    print(f"    Damage Onset Load      {metrics['SNPI Onset Load (N)']:>10.1f} N")
+    c = metrics['SNPI Critical Load (N)']
     print(f"    Critical Damage Load   {c:>10.1f} N" if c else "    Critical Damage Load          N/A")
-    print(f"    Final Damage           {metrics['Final Damage (%)']:>9.1f} %")
+    print(f"    Final Damage           {metrics['SNPI Final Damage (%)']:>9.1f} %")
     print(f"    Peak Growth Rate       {metrics['Peak Growth Rate']:>10.4f}")
     print(f"    Mean Uncertainty       {metrics['Mean Uncertainty']:>10.4f}")
 
+    print("\n  Cohesive Zone Model (CZM) Approximation")
+    print(f"    Damage Onset Load      {metrics['CZM Onset Load (N)']:>10.1f} N")
+    c2 = metrics['CZM Critical Load (N)']
+    print(f"    Critical Damage Load   {c2:>10.1f} N" if c2 else "    Critical Damage Load          N/A")
+    print(f"    Final Damage           {metrics['CZM Final Damage (%)']:>9.1f} %")
+    print(f"    SNPI vs CZM Diff (MAE) {metrics['SNPI vs CZM Diff (MAE %)']:>10.2f} %")
+
+    print("\n  Linear Elastic Fracture Mechanics (LEFM)")
+    print(f"    Theoretical Limit (Pc) {metrics['LEFM Critical Load (N)']:>10.1f} N")
     print("\n  Migration Tracking")
     print(f"    Predicted Interface    {metrics['Predicted Migration Interface']:>10d}")
     print(f"    Confidence             {metrics['Migration Confidence (%)']:>9.1f} %")
 
-    d = metrics['Final Damage (%)']
+    d = metrics['SNPI Final Damage (%)']
     if d < 10:
         sev = "MINIMAL  - Structure is safe"
     elif d < 30:
@@ -427,7 +474,7 @@ def _style():
 def _subtitle(props, metrics):
     return f"Material: {metrics['Material Type']}  |  E11={props['E11']} GPa  |  G1c={props['G1c']} kJ/m2  |  G2c={props['G2c']} kJ/m2"
 
-def plot_01_damage(res, metrics, props, out_dir):
+def plot_01a_damage_proposed(res, metrics, props, out_dir):
     _style()
     loads, dmg = res['loads'], res['damages']
     uncert = res['uncertainty']
@@ -435,22 +482,19 @@ def plot_01_damage(res, metrics, props, out_dir):
     dmg_hi = np.clip(dmg + uncert, 0, 1) * 100
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    ax.fill_between(loads, dmg_lo, dmg_hi, alpha=0.25, color='#4a90d9', label='Uncertainty Band')
-    ax.plot(loads, dmg * 100, '#1a5276', lw=2.5, marker='o', ms=5, label='Predicted Damage')
+    ax.fill_between(loads, dmg_lo, dmg_hi, alpha=0.25, color='#4a90d9', label='SNPI-Net Uncertainty')
+    ax.plot(loads, dmg * 100, '#1a5276', lw=3, marker='o', ms=5, label='Proposed Framework (SNPI-Net + CAD-Former)')
     
-    onset = metrics['Damage Onset Load (N)']
+    onset = metrics['SNPI Onset Load (N)']
     if onset != float('inf'):
-        ax.axvline(onset, color='#e67e22', ls='--', lw=2, label=f'Onset ({onset:.1f} N) -> 5% Damage')
-    c = metrics['Critical Damage Load (N)']
+        ax.axvline(onset, color='#e67e22', ls='--', lw=2, label=f'SNPI Onset ({onset:.1f} N)')
+    c = metrics['SNPI Critical Load (N)']
     if c:
-        ax.axvline(c, color='#e74c3c', ls='--', lw=2, label=f'Critical ({c:.1f} N) -> 50% Damage')
+        ax.axvline(c, color='#e74c3c', ls='--', lw=2, label=f'SNPI Critical ({c:.1f} N)')
     
-    lefm = metrics['Critical Load (N)']
-    ax.axvline(lefm, color='#8e44ad', ls=':', lw=1.5, label=f'LEFM P_c ({lefm:.1f} N)')
-
     ax.set_xlabel('Applied Load (N)')
     ax.set_ylabel('Damage Index (%)')
-    ax.set_title('Delamination Damage vs Applied Load', fontsize=14, fontweight='bold')
+    ax.set_title('Delamination Damage: Proposed Framework', fontsize=14, fontweight='bold')
     ax.set_ylim(-2, 105)
     ax.set_xlim(0, loads[-1] * 1.02)
     ax.legend(fontsize=10, loc='upper left')
@@ -458,7 +502,63 @@ def plot_01_damage(res, metrics, props, out_dir):
 
     fig.text(0.5, -0.02, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
     fig.tight_layout()
-    path = out_dir / '01_damage_vs_load.png'
+    path = out_dir / '01a_damage_proposed.png'
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return path
+
+def plot_01b_damage_czm(res, metrics, props, out_dir):
+    _style()
+    loads = res['loads']
+    dmg_czm = res['damages_czm'] * 100
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(loads, dmg_czm, '#27ae60', lw=3, ls='--', marker='s', ms=5, label='CZM (Cohesive Zone Model)')
+    
+    onset = metrics['CZM Onset Load (N)']
+    if onset != float('inf'):
+        ax.axvline(onset, color='#e67e22', ls='--', lw=2, label=f'CZM Onset ({onset:.1f} N)')
+    c_czm = metrics['CZM Critical Load (N)']
+    if c_czm:
+        ax.axvline(c_czm, color='#e74c3c', ls='--', lw=2, label=f'CZM Critical ({c_czm:.1f} N)')
+    
+    ax.set_xlabel('Applied Load (N)')
+    ax.set_ylabel('Damage Index (%)')
+    ax.set_title('Delamination Damage: Cohesive Zone Model (CZM)', fontsize=14, fontweight='bold')
+    ax.set_ylim(-2, 105)
+    ax.set_xlim(0, loads[-1] * 1.02)
+    ax.legend(fontsize=10, loc='upper left')
+    ax.grid(True, alpha=0.3)
+
+    fig.text(0.5, -0.02, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
+    fig.tight_layout()
+    path = out_dir / '01b_damage_czm.png'
+    fig.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    return path
+
+def plot_01c_damage_lefm(res, metrics, props, out_dir):
+    _style()
+    loads = res['loads']
+    dmg_lefm = res['damages_lefm'] * 100
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(loads, dmg_lefm, '#8e44ad', lw=3, ls=':', marker='^', ms=5, label='LEFM (Linear Elastic Fracture Mechanics)')
+    
+    lefm = metrics['LEFM Critical Load (N)']
+    ax.axvline(lefm, color='#8e44ad', ls='-', lw=1.5, alpha=0.5, label=f'Theoretical Limit Pc ({lefm:.1f} N)')
+    
+    ax.set_xlabel('Applied Load (N)')
+    ax.set_ylabel('Damage Index (%)')
+    ax.set_title('Delamination Damage: LEFM', fontsize=14, fontweight='bold')
+    ax.set_ylim(-2, 105)
+    ax.set_xlim(0, loads[-1] * 1.02)
+    ax.legend(fontsize=10, loc='upper left')
+    ax.grid(True, alpha=0.3)
+
+    fig.text(0.5, -0.02, _subtitle(props, metrics), ha='center', fontsize=9, color='#555')
+    fig.tight_layout()
+    path = out_dir / '01c_damage_lefm.png'
     fig.savefig(path, dpi=300, bbox_inches='tight')
     plt.close(fig)
     return path
@@ -539,7 +639,16 @@ def plot_03_uncertainty(res, metrics, props, out_dir):
 def plot_04_migration(res, metrics, props, out_dir):
     _style()
     mig = res['migration']
-    ply_map = {0: '0/90', 1: '90/+45', 2: '+45/-45', 3: '-45/0'}
+    
+    # Dynamically assign labels based on material type
+    mat_type = metrics.get('Material Type', 'Multi-Directional')
+    if 'Unidirectional' in mat_type:
+        ply_map = {0: '0/0', 1: '0/0', 2: '0/0', 3: '0/0'}
+    elif 'Cross-Ply' in mat_type:
+        ply_map = {0: '0/90', 1: '90/0', 2: '0/90', 3: '90/0'}
+    else:
+        ply_map = {0: '0/90', 1: '90/+45', 2: '+45/-45', 3: '-45/0'}
+        
     labels = [f'Interface {i}\n({ply_map.get(i, "")})' for i in range(len(mig))]
     best = int(np.argmax(mig))
     colors = ['#2ecc71' if i == best else '#bdc3c7' for i in range(len(mig))]
@@ -572,7 +681,9 @@ def plot_04_migration(res, metrics, props, out_dir):
 
 def generate_individual_plots(res, metrics, props, out_dir):
     paths = [
-        plot_01_damage(res, metrics, props, out_dir),
+        plot_01a_damage_proposed(res, metrics, props, out_dir),
+        plot_01b_damage_czm(res, metrics, props, out_dir),
+        plot_01c_damage_lefm(res, metrics, props, out_dir),
         plot_02_growth(res, metrics, props, out_dir),
         plot_03_uncertainty(res, metrics, props, out_dir),
         plot_04_migration(res, metrics, props, out_dir)
@@ -584,10 +695,14 @@ def export_csv(res, metrics, props, out_dir):
     p1 = out_dir / "raw_data.csv"
     with open(p1, 'w', newline='') as f:
         w = csv.writer(f)
-        w.writerow(['Load (N)', 'Damage (%)', 'Growth Rate', 'Uncertainty'])
+        w.writerow(['Load (N)', 'Damage_Framework (%)', 'Damage_CZM (%)', 'Damage_LEFM (%)', 'Growth Rate', 'Uncertainty'])
         for i in range(len(res['loads'])):
-            w.writerow([f"{res['loads'][i]:.2f}", f"{res['damages'][i]*100:.2f}",
-                         f"{res['growth'][i]:.6f}", f"{res['uncertainty'][i]:.6f}"])
+            w.writerow([f"{res['loads'][i]:.2f}", 
+                        f"{res['damages'][i]*100:.2f}",
+                        f"{res['damages_czm'][i]*100:.2f}",
+                        f"{res['damages_lefm'][i]*100:.2f}",
+                        f"{res['growth'][i]:.6f}", 
+                        f"{res['uncertainty'][i]:.6f}"])
 
     p2 = out_dir / "metrics.csv"
     with open(p2, 'w', newline='') as f:
@@ -621,7 +736,9 @@ def main():
 
     print(f"\n  Saved to: {out_dir}")
     print(f"  " + "-" * 54)
-    print("    01_damage_vs_load.png        <- S-curve with onset & critical load")
+    print("    01a_damage_proposed.png      <- S-curve for Proposed Framework")
+    print("    01b_damage_czm.png           <- Bilinear damage curve for CZM")
+    print("    01c_damage_lefm.png          <- Step function curve for LEFM")
     print("    02_growth_rate.png           <- dD/dP bell curve")
     print("    03_uncertainty_band.png      <- confidence envelope")
     print("    04_migration_prediction.png  <- interface probability chart")
