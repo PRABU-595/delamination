@@ -86,8 +86,11 @@ def predict(model, device, props):
         ply_angles = [0.0, 0.0, 0.0, 0.0]
     elif 'Cross-Ply' in mat_type:
         ply_angles = [0.0, 90.0, 0.0, 90.0]
+    elif 'Angle-Ply' in mat_type:
+        ply_angles = [45.0, -45.0, 45.0, -45.0]
+    elif 'Quasi-Isotropic' in mat_type:
+        ply_angles = [0.0, -45.0, 90.0, 45.0]
     else:
-        # Default complex layup for Woven, Quasi-Isotropic, etc.
         ply_angles = [0.0, 90.0, 45.0, -45.0]
 
     for k in range(4):
@@ -244,6 +247,10 @@ def predict(model, device, props):
         ply_angles = [0.0, 0.0, 0.0, 0.0]
     elif 'Cross-Ply' in mat_type:
         ply_angles = [0.0, 90.0, 0.0, 90.0]
+    elif 'Angle-Ply' in mat_type:
+        ply_angles = [45.0, -45.0, 45.0, -45.0]
+    elif 'Quasi-Isotropic' in mat_type:
+        ply_angles = [0.0, -45.0, 90.0, 45.0]
     else:
         ply_angles = [0.0, 90.0, 45.0, -45.0]
     G1c = props['G1c']
@@ -646,6 +653,10 @@ def plot_04_migration(res, metrics, props, out_dir):
         ply_map = {0: '0/0', 1: '0/0', 2: '0/0', 3: '0/0'}
     elif 'Cross-Ply' in mat_type:
         ply_map = {0: '0/90', 1: '90/0', 2: '0/90', 3: '90/0'}
+    elif 'Angle-Ply' in mat_type:
+        ply_map = {0: '+45/-45', 1: '-45/+45', 2: '+45/-45', 3: '-45/+45'}
+    elif 'Quasi-Isotropic' in mat_type:
+        ply_map = {0: '0/-45', 1: '-45/90', 2: '90/+45', 3: '+45/0'}
     else:
         ply_map = {0: '0/90', 1: '90/+45', 2: '+45/-45', 3: '-45/0'}
         
