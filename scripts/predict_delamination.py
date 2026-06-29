@@ -82,7 +82,9 @@ def predict(model, device, props):
     stiffness_ratio = E11 / max(E22, 1e-6)
 
     mat_type = classify_material(props)
-    if 'Unidirectional' in mat_type:
+    if 'Unidirectional Transverse' in mat_type:
+        ply_angles = [90.0, 90.0, 90.0, 90.0]
+    elif 'Unidirectional' in mat_type:
         ply_angles = [0.0, 0.0, 0.0, 0.0]
     elif 'Cross-Ply' in mat_type:
         ply_angles = [0.0, 90.0, 0.0, 90.0]
@@ -243,7 +245,9 @@ def predict(model, device, props):
     # The interface with the LOWEST Gc_crit relative to applied G is
     # the most likely to delaminate first.
     # ----------------------------------------------------------------
-    if 'Unidirectional' in mat_type:
+    if 'Unidirectional Transverse' in mat_type:
+        ply_angles = [90.0, 90.0, 90.0, 90.0]
+    elif 'Unidirectional' in mat_type:
         ply_angles = [0.0, 0.0, 0.0, 0.0]
     elif 'Cross-Ply' in mat_type:
         ply_angles = [0.0, 90.0, 0.0, 90.0]
@@ -318,31 +322,6 @@ def predict(model, device, props):
 
 
 def classify_material(props):
-    """
-    5-class composite architecture classifier.
-    Uses three independent material signatures from CLT:
-
-      1. r  = E11/E22  — Stiffness anisotropy ratio
-           Woven/QI/CSM: r ~ 1.0   |  Cross-ply: r ~ 2-5  |  UD: r > 8
-
-      2. s  = G12/E11  — In-plane shear coupling index
-           Woven:  s ~ 0.15-0.30  (fibres in 0 AND 90 → high shear resistance)
-           UD:     s ~ 0.02-0.07  (fibres only in 0 → weak transverse shear)
-           Angle-ply [+/-45]: s can be very high due to shear dominance
-
-      3. nu12             — Poisson coupling
-           UD:     nu12 ~ 0.25-0.35  (high fibre-direction dominance)
-           Woven:  nu12 ~ 0.05-0.15  (balanced → low Poisson coupling)
-           Random: nu12 ~ 0.30-0.40  (isotropic-like)
-
-    Classes:
-        Unidirectional (UD)      – single fibre direction, max anisotropy
-        Cross-Ply [0/90]         – alternating 0/90, moderate anisotropy
-        Woven Fabric             – balanced 0/90 weave, near-isotropic in-plane
-        Quasi-Isotropic [0/+/-45/90] – designed for in-plane isotropy
-        Angle-Ply [+/-θ]           – off-axis ply dominance, high shear stiffness
-        Random/CSM               – chopped strand mat, fully isotropic
-    """
     E11  = props['E11']
     E22  = props['E22']
     G12  = props['G12']
@@ -352,33 +331,35 @@ def classify_material(props):
     s = G12 / max(E11, 1e-6)   # Shear coupling index
 
     # --- Decision tree grounded in CLT predictions ---
+    # Check massive anisotropy first (Unidirectional)
+    if r >= 5.5 and nu12 >= 0.20:
+        return 'Unidirectional (UD)'
+    if (E22 / max(E11, 1e-6)) >= 5.5:
+        return 'Unidirectional Transverse (90/90)'
 
     # Random / Chopped Strand Mat: nearly isotropic, very low stiffness
     if r < 1.15 and E11 < 15.0 and s < 0.20:
         return 'Random / CSM'
 
-    # Quasi-Isotropic [0/+/-45/90]s: near-equal E11/E22, moderate G12,
-    # but lower G12/E11 than woven because +/-45 plies distribute shear differently
+    # Quasi-Isotropic [0/+/-45/90]s
     if r < 1.15 and s < 0.17 and nu12 > 0.25:
         return 'Quasi-Isotropic'
 
-    # Woven Fabric: near-equal E11/E22, HIGH G12 relative to axial stiffness,
-    # low nu12 (balanced fibres cancel lateral expansion)
+    # Woven Fabric
     if r < 1.20 and s >= 0.17 and nu12 <= 0.20:
         return 'Woven Fabric'
 
     # Catch remaining near-isotropic cases as Quasi-Isotropic
     if r < 1.20:
         return 'Quasi-Isotropic'
+    
     if 1.20 <= r < 6.0 and s > 0.20:
         return 'Angle-Ply [+/-th]'
+        
     if 1.20 <= r < 5.5 and s <= 0.20:
         return 'Cross-Ply [0/90]'
-    if r >= 5.5 and nu12 >= 0.20:
-        return 'Unidirectional (UD)'
+
     return 'Multi-Directional'
-
-
 def compute_metrics(res, props):
 
     loads, dmg = res['loads'], res['damages']
@@ -649,7 +630,9 @@ def plot_04_migration(res, metrics, props, out_dir):
     
     # Dynamically assign labels based on material type
     mat_type = metrics.get('Material Type', 'Multi-Directional')
-    if 'Unidirectional' in mat_type:
+    if 'Unidirectional Transverse' in mat_type:
+        ply_map = {0: '90/90', 1: '90/90', 2: '90/90', 3: '90/90'}
+    elif 'Unidirectional' in mat_type:
         ply_map = {0: '0/0', 1: '0/0', 2: '0/0', 3: '0/0'}
     elif 'Cross-Ply' in mat_type:
         ply_map = {0: '0/90', 1: '90/0', 2: '0/90', 3: '90/0'}
